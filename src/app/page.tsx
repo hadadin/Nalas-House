@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -32,9 +33,11 @@ export default async function Home() {
         Invite code for your partner:{" "}
         <span className="font-mono font-semibold">{household.invite_code}</span>
       </p>
-      <p className="text-sm text-gray-500">
-        Phase 0 complete — Phase 1 (menu + shopping list) lands here next.
-      </p>
+      <nav className="flex gap-4 text-sm underline">
+        <Link href="/preferences">Preferences</Link>
+        <Link href="/menu">This week&apos;s menu</Link>
+        <Link href="/shopping-list">Shopping list</Link>
+      </nav>
     </main>
   );
 }

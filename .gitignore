@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# stray local build output
+/tmp/
+*.orig
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
