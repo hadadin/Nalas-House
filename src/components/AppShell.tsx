@@ -35,8 +35,8 @@ function AccountIcon({ active }: { active: boolean }) {
   const c = active ? "var(--green)" : "var(--ink3)"; const w = active ? 2.2 : 1.6;
   return <svg width="20" height="20" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="8" r="3.5" stroke={c} strokeWidth={w} /><path d="M5 19c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke={c} strokeWidth={w} strokeLinecap="round" /></svg>;
 }
-function ChatIcon() {
-  return <svg width="20" height="20" viewBox="0 0 22 22" fill="none"><path d="M11 2C6.5 2 3 5.1 3 9c0 2 .9 3.8 2.4 5.1L5 19l3.8-1.1c.7.2 1.5.4 2.3.4 4.5 0 8-3.1 8-7s-3.5-7-8-7z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>;
+function ChatBubbleIcon() {
+  return <svg width="18" height="18" viewBox="0 0 22 22" fill="none"><path d="M11 2C6.5 2 3 5.1 3 9c0 2 .9 3.8 2.4 5.1L5 19l3.8-1.1c.7.2 1.5.4 2.3.4 4.5 0 8-3.1 8-7s-3.5-7-8-7z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>;
 }
 
 const NAV = [
@@ -57,23 +57,26 @@ export default function AppShell({ children, householdName, account, tasks, pref
   }
 
   return (
-    <div id="app-frame" style={{ display: "flex", flexDirection: "column", minHeight: "100dvh", background: "var(--bg)" }}>
+    // No display/flex inline — CSS owns the layout (flex on mobile, grid on desktop)
+    <div id="app-frame">
 
       {/* ── Header ── */}
-      <header className="app-header" style={{ padding: "0 24px", background: "var(--bg)", position: "sticky", top: 0, zIndex: 10, display: "flex", alignItems: "center", height: 60 }}>
+      <header className="app-header" style={{ display: "flex", alignItems: "center", padding: "0 24px", gap: 12 }}>
         <button onClick={() => router.push("/")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
           <span className="serif" style={{ fontSize: 19, fontWeight: 700, color: "var(--ink)" }}>{householdName}</span>
         </button>
         <div style={{ flex: 1 }} />
-        {/* Desktop: chat button in header */}
+
+        {/* Desktop-only "Ask AI" button */}
         <button
+          className="desktop-chat-btn"
           onClick={() => setChatOpen(true)}
-          className="desktop-header-chat"
-          style={{ display: "none", alignItems: "center", gap: 6, background: "var(--green-soft)", border: "none", borderRadius: 999, padding: "7px 14px 7px 10px", cursor: "pointer", marginRight: 12 }}
+          style={{ alignItems: "center", gap: 6, background: "var(--green-soft)", border: "none", borderRadius: 999, padding: "7px 14px 7px 10px", cursor: "pointer" }}
         >
-          <ChatIcon />
+          <ChatBubbleIcon />
           <span style={{ fontSize: 13, fontWeight: 700, color: "var(--green)" }}>Ask AI</span>
         </button>
+
         <button onClick={() => router.push("/account")} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--warm)", border: "1px solid var(--line)", borderRadius: 999, padding: "4px 10px 4px 4px", cursor: "pointer" }}>
           <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--green)", color: "var(--on-green)", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {account.user_name[0]}{account.partner_name[0]}
@@ -82,42 +85,64 @@ export default function AppShell({ children, householdName, account, tasks, pref
         </button>
       </header>
 
-      {/* ── Sidebar (desktop only via CSS) ── */}
-      <aside className="app-sidebar" style={{ display: "none", background: "var(--bg)" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 12px", flex: 1 }}>
+      {/* ── Sidebar (CSS shows it on desktop, hides on mobile) ── */}
+      <aside className="app-sidebar" style={{ background: "var(--bg)" }}>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 2, padding: "12px 12px", flex: 1 }}>
           {NAV.map(({ href, label, Icon }) => {
             const active = isActive(href);
             return (
-              <Link key={href} href={href} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, textDecoration: "none", background: active ? "var(--green-soft)" : "transparent", color: active ? "var(--green)" : "var(--ink2)", fontWeight: active ? 700 : 500, fontSize: 14, transition: "background .1s" }}>
+              <Link
+                key={href}
+                href={href}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 14px", borderRadius: 12, textDecoration: "none",
+                  background: active ? "var(--green-soft)" : "transparent",
+                  color: active ? "var(--green)" : "var(--ink2)",
+                  fontWeight: active ? 700 : 500, fontSize: 14,
+                }}
+              >
                 <Icon active={active} />
                 {label}
               </Link>
             );
           })}
-        </div>
-        {/* Assistant button at bottom of sidebar */}
-        <div style={{ padding: "12px 12px 8px", borderTop: "1px solid var(--line)", marginTop: "auto" }}>
-          <button onClick={() => setChatOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, border: "1.5px solid var(--green-soft)", background: "var(--green-soft)", cursor: "pointer", color: "var(--green)", fontWeight: 700, fontSize: 14 }}>
-            <ChatIcon />
+        </nav>
+
+        {/* Assistant shortcut */}
+        <div style={{ padding: "12px", borderTop: "1px solid var(--line)" }}>
+          <button
+            onClick={() => setChatOpen(true)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 12, border: "none", background: "var(--green-soft)", cursor: "pointer", color: "var(--green)", fontWeight: 700, fontSize: 14 }}
+          >
+            <ChatBubbleIcon />
             Household assistant
           </button>
         </div>
       </aside>
 
       {/* ── Page content ── */}
-      <main className="app-content" style={{ flex: 1, paddingBottom: 74 }}>
+      <main className="app-content">
         {children}
       </main>
 
       {/* ── Mobile: chat FAB ── */}
       {!chatOpen && (
-        <button onClick={() => setChatOpen(true)} className="chat-fab" style={{ position: "fixed", bottom: 82, right: 16, width: 52, height: 52, borderRadius: "50%", background: "var(--green)", color: "var(--on-green)", border: "none", cursor: "pointer", zIndex: 20, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(31,61,46,0.3)" }} aria-label="Open assistant">
-          <ChatIcon />
+        <button
+          onClick={() => setChatOpen(true)}
+          className="chat-fab"
+          style={{ position: "fixed", bottom: 82, right: 16, width: 52, height: 52, borderRadius: "50%", background: "var(--green)", color: "var(--on-green)", border: "none", cursor: "pointer", zIndex: 20, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(31,61,46,0.3)" }}
+          aria-label="Open assistant"
+        >
+          <ChatBubbleIcon />
         </button>
       )}
 
-      {/* ── Mobile bottom nav ── */}
-      <nav className="bottom-nav" style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, display: "flex", background: "var(--surface)", borderTop: "1px solid var(--line)", zIndex: 10, paddingBottom: "env(safe-area-inset-bottom)" }}>
+      {/* ── Mobile: bottom nav ── */}
+      <nav
+        className="bottom-nav"
+        style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, display: "flex", background: "var(--surface)", borderTop: "1px solid var(--line)", zIndex: 10, paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         {NAV.map(({ href, label, Icon }) => {
           const active = isActive(href);
           return (
@@ -131,7 +156,14 @@ export default function AppShell({ children, householdName, account, tasks, pref
 
       {/* ── Chat overlay ── */}
       {chatOpen && (
-        <ChatOverlay onClose={() => setChatOpen(false)} account={account} tasks={tasks} preferences={preferences} menuId={menuId} onNavigate={(p) => { router.push(p); setChatOpen(false); }} />
+        <ChatOverlay
+          onClose={() => setChatOpen(false)}
+          account={account}
+          tasks={tasks}
+          preferences={preferences}
+          menuId={menuId}
+          onNavigate={(p) => { router.push(p); setChatOpen(false); }}
+        />
       )}
     </div>
   );
