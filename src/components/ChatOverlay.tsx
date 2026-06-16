@@ -101,7 +101,7 @@ export default function ChatOverlay({ onClose, account, tasks, preferences, menu
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column", background: "var(--bg)", maxWidth: 430, left: "50%", transform: "translateX(-50%)", width: "100%" }}>
+    <div className="chat-overlay" style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", flexDirection: "column", background: "var(--bg)", maxWidth: 430, left: "50%", transform: "translateX(-50%)", width: "100%" }}>
       {/* Header */}
       <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", borderBottom: "1px solid var(--line)", background: "var(--surface)" }}>
         <div>
