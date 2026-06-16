@@ -4,32 +4,25 @@ import { NextResponse } from "next/server";
 
 function currentWeekMonday() {
   const now = new Date();
-  const day = now.getDay(); // 0 = Sunday
-  const diffToMonday = (day + 6) % 7;
+  const diff = (now.getDay() + 6) % 7;
   const monday = new Date(now);
-  monday.setDate(now.getDate() - diffToMonday);
+  monday.setDate(now.getDate() - diff);
   return monday.toISOString().slice(0, 10);
 }
 
 export async function POST(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const { data: membership } = await supabase
     .from("household_member")
     .select("household_id")
     .eq("user_id", user.id)
     .maybeSingle();
+  if (!membership) return NextResponse.json({ error: "No household" }, { status: 400 });
 
-  if (!membership) {
-    return NextResponse.json({ error: "No household" }, { status: 400 });
-  }
   const householdId = membership.household_id;
-
   const body = await request.json().catch(() => ({}));
   const menuId: string | undefined = body.menuId;
   const adjustmentNote: string | null = body.adjustmentNote ?? null;
@@ -50,13 +43,13 @@ export async function POST(request: Request) {
     notes: null,
   };
 
-  // Recent meals across the household's last few menus, to avoid repeats.
+  // Recent meals to avoid repeats
   const { data: recentMenus } = await supabase
     .from("menu")
     .select("id, week_of, meal(name)")
     .eq("household_id", householdId)
     .order("week_of", { ascending: false })
-    .limit(4);
+    .limit(3);
 
   const recentMeals = (recentMenus ?? []).flatMap((m) =>
     (m.meal as unknown as { name: string }[]).map((meal) => ({
@@ -81,11 +74,12 @@ export async function POST(request: Request) {
 
     const { data: meals } = await supabase
       .from("meal")
-      .select("day_index, name, cuisine, cook_time_minutes, steps, ingredient(name, quantity, unit, aisle)")
+      .select("day_index, meal_type, name, cuisine, cook_time_minutes, steps, ingredient(name, quantity, unit, aisle)")
       .eq("menu_id", menuId);
 
     currentMeals = (meals ?? []).map((m) => ({
       day_index: m.day_index,
+      meal_type: (m.meal_type ?? "dinner") as "breakfast" | "lunch" | "dinner",
       name: m.name,
       cuisine: m.cuisine,
       cook_time_minutes: m.cook_time_minutes,
@@ -100,30 +94,19 @@ export async function POST(request: Request) {
       .single();
 
     if (menuError || !newMenu) {
-      return NextResponse.json(
-        { error: menuError?.message ?? "Could not create menu" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: menuError?.message ?? "Could not create menu" }, { status: 500 });
     }
     targetMenuId = newMenu.id;
   }
 
   let meals: ProposedMeal[];
   try {
-    meals = await generateMenu({
-      profile,
-      recentMeals,
-      currentMeals,
-      adjustmentNote,
-    });
+    meals = await generateMenu({ profile, recentMeals, currentMeals, adjustmentNote });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Menu generation failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Menu generation failed" }, { status: 500 });
   }
 
-  // Replace meals for this menu (cascade deletes their ingredients).
+  // Replace all meals for this menu
   await supabase.from("meal").delete().eq("menu_id", targetMenuId);
 
   for (const meal of meals) {
@@ -132,32 +115,61 @@ export async function POST(request: Request) {
       .insert({
         menu_id: targetMenuId,
         name: meal.name,
-        cuisine: meal.cuisine,
-        cook_time_minutes: meal.cook_time_minutes,
-        steps: meal.steps,
+        cuisine: meal.cuisine ?? null,
+        cook_time_minutes: meal.cook_time_minutes ?? null,
+        steps: meal.steps ?? [],
         day_index: meal.day_index,
+        meal_type: meal.meal_type,
       })
       .select("id")
       .single();
 
-    if (mealError || !insertedMeal) {
-      return NextResponse.json(
-        { error: mealError?.message ?? "Could not save meal" },
-        { status: 500 }
-      );
-    }
+    if (mealError || !insertedMeal) continue;
 
     if (meal.ingredients.length > 0) {
       await supabase.from("ingredient").insert(
         meal.ingredients.map((ing) => ({
           meal_id: insertedMeal.id,
           name: ing.name,
-          quantity: ing.quantity,
-          unit: ing.unit,
+          quantity: ing.quantity ?? null,
+          unit: ing.unit ?? null,
           aisle: ing.aisle || "other",
         }))
       );
     }
+  }
+
+  // Generate consolidated shopping list
+  const { data: allIngredients } = await supabase
+    .from("ingredient")
+    .select("name, quantity, unit, aisle, meal_id, meal(menu_id)")
+    .eq("meal.menu_id", targetMenuId);
+
+  if (allIngredients && allIngredients.length > 0) {
+    // Consolidate by name+aisle
+    const consolidated: Record<string, { name: string; quantity: number | null; unit: string | null; aisle: string }> = {};
+    for (const ing of allIngredients) {
+      const key = `${ing.name.toLowerCase()}|${ing.aisle}`;
+      if (!consolidated[key]) {
+        consolidated[key] = { name: ing.name, quantity: ing.quantity, unit: ing.unit, aisle: ing.aisle };
+      } else if (ing.quantity && consolidated[key].quantity) {
+        consolidated[key].quantity = (consolidated[key].quantity ?? 0) + ing.quantity;
+      }
+    }
+
+    // Delete old shopping items for this menu
+    await supabase.from("shopping_item").delete().eq("menu_id", targetMenuId);
+
+    await supabase.from("shopping_item").insert(
+      Object.values(consolidated).map((item) => ({
+        menu_id: targetMenuId,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        aisle: item.aisle,
+        is_checked: false,
+      }))
+    );
   }
 
   return NextResponse.json({ menuId: targetMenuId });

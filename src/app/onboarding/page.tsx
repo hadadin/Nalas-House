@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 export default function OnboardingPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"create" | "join">("create");
-  const [name, setName] = useState("");
+  const [name, setName] = useState("Nala's House");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,67 +17,88 @@ export default function OnboardingPage() {
     setLoading(true);
     setError(null);
     const supabase = createClient();
-
     const { error } =
       mode === "create"
         ? await supabase.rpc("create_household", { household_name: name })
         : await supabase.rpc("join_household", { code });
-
     setLoading(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
+    if (error) { setError(error.message); return; }
     router.push("/");
     router.refresh();
   }
 
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-6">
-      <h1 className="text-2xl font-semibold">Set up your household</h1>
+  const tab = (t: "create" | "join", label: string) => (
+    <button
+      type="button"
+      onClick={() => setMode(t)}
+      style={{
+        flex: 1,
+        padding: "8px 0",
+        borderRadius: 999,
+        border: "none",
+        cursor: "pointer",
+        fontSize: 13,
+        fontWeight: 700,
+        background: mode === t ? "var(--surface)" : "transparent",
+        color: mode === t ? "var(--ink)" : "var(--ink2)",
+      }}
+    >
+      {label}
+    </button>
+  );
 
-      <div className="flex gap-2">
-        <button
-          onClick={() => setMode("create")}
-          className={`rounded px-3 py-1 ${mode === "create" ? "bg-black text-white" : "border"}`}
-        >
-          Create new
-        </button>
-        <button
-          onClick={() => setMode("join")}
-          className={`rounded px-3 py-1 ${mode === "join" ? "bg-black text-white" : "border"}`}
-        >
-          Join existing
-        </button>
+  return (
+    <main style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "24px 20px" }}>
+      <div style={{ marginBottom: 36, textAlign: "center" }}>
+        <div className="serif" style={{ fontSize: 28, fontWeight: 700, color: "var(--ink)" }}>
+          Set up your household
+        </div>
+        <div style={{ marginTop: 6, fontSize: 14, color: "var(--ink2)" }}>
+          Create a new one or join with an invite code.
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-3">
-        {mode === "create" ? (
-          <input
-            required
-            placeholder="Household name (e.g. Nala's House)"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="rounded border px-3 py-2"
-          />
-        ) : (
-          <input
-            required
-            placeholder="Invite code from your partner"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="rounded border px-3 py-2"
-          />
-        )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-        >
-          {loading ? "Saving..." : "Continue"}
-        </button>
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
+      <div style={{ width: "100%", maxWidth: 360, background: "var(--surface)", borderRadius: 20, border: "1px solid var(--line)", padding: "28px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ display: "flex", background: "var(--warm)", borderRadius: 999, padding: 4 }}>
+          {tab("create", "Create new")}
+          {tab("join", "Join with code")}
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {mode === "create" ? (
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "var(--ink2)", display: "block", marginBottom: 6 }}>Household name</label>
+              <input
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Nala's House"
+                style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1.5px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 14, outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+          ) : (
+            <div>
+              <label style={{ fontSize: 13, fontWeight: 600, color: "var(--ink2)", display: "block", marginBottom: 6 }}>Invite code</label>
+              <input
+                required
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="Enter 6-character code"
+                maxLength={6}
+                style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1.5px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "monospace", letterSpacing: "0.2em" }}
+              />
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{ background: "var(--green)", color: "var(--on-green)", border: "none", borderRadius: 999, padding: "12px 0", fontSize: 14, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}
+          >
+            {loading ? "Setting up…" : "Continue"}
+          </button>
+          {error && <div style={{ textAlign: "center", fontSize: 13, color: "var(--coral)" }}>{error}</div>}
+        </form>
+      </div>
     </main>
   );
 }

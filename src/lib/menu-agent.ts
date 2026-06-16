@@ -8,7 +8,8 @@ export type ProposedIngredient = {
 };
 
 export type ProposedMeal = {
-  day_index: number;
+  day_index: number; // 0=Monday … 6=Sunday
+  meal_type: "breakfast" | "lunch" | "dinner";
   name: string;
   cuisine: string | null;
   cook_time_minutes: number | null;
@@ -29,40 +30,40 @@ export type RecentMeal = { name: string; week_of: string };
 
 const MENU_TOOL = {
   name: "propose_menu",
-  description: "Propose or update a full 7-day household menu.",
+  description: "Propose a full 7-day household menu with breakfast, lunch, and dinner for each day.",
   input_schema: {
     type: "object" as const,
     properties: {
       meals: {
         type: "array",
-        description: "Exactly 7 meals, one per day_index 0-6 (0=Monday).",
+        description: "Exactly 21 meals: 3 per day (breakfast/lunch/dinner) × 7 days. day_index 0=Monday, 6=Sunday.",
         items: {
           type: "object",
+          required: ["day_index", "meal_type", "name", "steps", "ingredients"],
           properties: {
             day_index: { type: "integer", minimum: 0, maximum: 6 },
+            meal_type: { type: "string", enum: ["breakfast", "lunch", "dinner"] },
             name: { type: "string" },
             cuisine: { type: "string" },
             cook_time_minutes: { type: "integer" },
-            steps: { type: "array", items: { type: "string" } },
+            steps: { type: "array", items: { type: "string" }, description: "3-6 cooking steps" },
             ingredients: {
               type: "array",
               items: {
                 type: "object",
+                required: ["name", "aisle"],
                 properties: {
                   name: { type: "string" },
                   quantity: { type: "number" },
                   unit: { type: "string" },
                   aisle: {
                     type: "string",
-                    description:
-                      "produce, dairy, pantry, protein, frozen, bakery, or other",
+                    enum: ["produce", "dairy", "protein", "pantry", "bakery", "frozen", "other"],
                   },
                 },
-                required: ["name", "aisle"],
               },
             },
           },
-          required: ["day_index", "name", "steps", "ingredients"],
         },
       },
     },
@@ -70,25 +71,50 @@ const MENU_TOOL = {
   },
 };
 
-function buildSystemPrompt() {
-  return `You are the menu-planning agent for a 2-person household app called Nala's House.
-Your job: propose a full week's menu (7 meals, one per day) that this household will
-actually cook, given their stored profile below. You always return your answer via the
-propose_menu tool — never as plain text.
+function buildSystemPrompt(
+  profile: HouseholdProfile,
+  recentMeals: RecentMeal[],
+  currentMeals: ProposedMeal[] | null,
+  adjustmentNote: string | null
+): string {
+  const lines: string[] = [
+    "You are a professional home chef creating a personalised weekly meal plan.",
+    "",
+    "Household profile:",
+    `- Dietary rules: ${profile.dietary_rules.length ? profile.dietary_rules.join(", ") : "none"}`,
+    `- Dislikes: ${profile.dislikes.length ? profile.dislikes.join(", ") : "none"}`,
+    `- Preferred cuisines: ${profile.cuisines.length ? profile.cuisines.join(", ") : "any"}`,
+    `- Household size: ${profile.household_size} people`,
+    profile.max_cook_time_minutes
+      ? `- Max cook time: ${profile.max_cook_time_minutes} min`
+      : "",
+    profile.notes ? `- Notes: ${profile.notes}` : "",
+    "",
+    "Create 21 meals total (breakfast, lunch, dinner for each of 7 days).",
+    "Breakfasts: quick (≤20 min). Lunches: light. Dinners: more substantial.",
+    "Vary cuisines and ingredients. Include Israeli/Mediterranean favourites when no preference is set.",
+    "Provide 3-6 ingredients per breakfast, 4-8 per lunch/dinner.",
+    "Provide 2-4 steps for breakfast, 4-6 for lunch/dinner.",
+  ];
 
-Hard constraints — never violate, even under pressure to be creative or fast:
-- Allergies and dietary rules listed in the profile.
+  if (recentMeals.length > 0) {
+    lines.push("", "Avoid repeating these recent meals:");
+    recentMeals.slice(0, 14).forEach((m) => lines.push(`- ${m.name}`));
+  }
 
-Soft preferences — steer toward, but don't treat as absolute:
-- Dislikes, favored cuisines, cooking skill, equipment, goals, time budget.
+  if (currentMeals && currentMeals.length > 0) {
+    lines.push("", "Current menu (keep meals unless adjusting):");
+    currentMeals.forEach((m) => lines.push(`- Day ${m.day_index} ${m.meal_type}: ${m.name}`));
+  }
 
-When given a "current menu" plus an adjustment instruction, keep every day unchanged
-except the ones the instruction actually targets, and return the full 7-day menu either
-way (not a partial diff). When given no current menu, propose a fresh week, trying to
-avoid repeating meals from "recent menus" if provided.`;
+  if (adjustmentNote) {
+    lines.push("", `User adjustment request: "${adjustmentNote}"`);
+  }
+
+  return lines.filter((l) => l !== undefined).join("\n");
 }
 
-function buildUserPrompt({
+export async function generateMenu({
   profile,
   recentMeals,
   currentMeals,
@@ -98,80 +124,36 @@ function buildUserPrompt({
   recentMeals: RecentMeal[];
   currentMeals: ProposedMeal[] | null;
   adjustmentNote: string | null;
-}) {
-  const parts: string[] = [];
-  parts.push(`Household profile:\n${JSON.stringify(profile, null, 2)}`);
-
-  if (recentMeals.length > 0) {
-    parts.push(
-      `Recent meals already cooked (avoid repeating these):\n${recentMeals
-        .map((m) => `- ${m.name} (week of ${m.week_of})`)
-        .join("\n")}`
-    );
-  }
-
-  if (currentMeals) {
-    parts.push(
-      `Current proposed menu (full week, to revise):\n${JSON.stringify(
-        currentMeals,
-        null,
-        2
-      )}`
-    );
-  }
-
-  if (adjustmentNote) {
-    parts.push(`Adjustment requested: ${adjustmentNote}`);
-    parts.push(
-      "Apply this adjustment to the relevant day(s) only, and return the full updated 7-day menu."
-    );
-  } else {
-    parts.push("Propose a brand new full week's menu.");
-  }
-
-  return parts.join("\n\n");
-}
-
-export async function generateMenu(input: {
-  profile: HouseholdProfile;
-  recentMeals: RecentMeal[];
-  currentMeals: ProposedMeal[] | null;
-  adjustmentNote: string | null;
 }): Promise<ProposedMeal[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add it to .env.local (and Vercel env vars) to enable menu generation."
-    );
-  }
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const client = new Anthropic({ apiKey });
+  const system = buildSystemPrompt(profile, recentMeals, currentMeals, adjustmentNote);
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: buildSystemPrompt(),
+    model: "claude-opus-4-5",
+    max_tokens: 8192,
+    system,
     tools: [MENU_TOOL],
-    tool_choice: { type: "tool", name: "propose_menu" },
+    tool_choice: { type: "any" },
     messages: [
       {
         role: "user",
-        content: buildUserPrompt(input),
+        content: adjustmentNote
+          ? `Please adjust the menu: ${adjustmentNote}`
+          : "Please generate this week's meal plan.",
       },
     ],
   });
 
-  const toolUse = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-
-  if (!toolUse) {
-    throw new Error("Menu agent did not return a structured menu.");
+  for (const block of response.content) {
+    if (block.type === "tool_use" && block.name === "propose_menu") {
+      const input = block.input as { meals: ProposedMeal[] };
+      if (!Array.isArray(input.meals)) {
+        throw new Error("Invalid menu structure from AI");
+      }
+      return input.meals;
+    }
   }
 
-  const result = toolUse.input as { meals: ProposedMeal[] };
-  if (!result.meals || result.meals.length === 0) {
-    throw new Error("Menu agent returned no meals.");
-  }
-  return result.meals;
+  throw new Error("AI did not return a menu — try again.");
 }
